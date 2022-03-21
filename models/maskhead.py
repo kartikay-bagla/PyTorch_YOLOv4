@@ -2,6 +2,7 @@ import torch
 from torch import nn
 from torchvision.ops import roi_align, batched_nms
 from models.models import Darknet, load_darknet_weights
+from utils.general import non_max_suppression
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -13,36 +14,6 @@ MAX_BOXES_PER_IMAGE = 300
 NMS_IOU_THRESHOLD = 0.5
 ROI_ALIGN_OUTPUT_SIDE = 14
 ROI_ALIGN_OUTPUT_SCALES = (8, 16, 32)
-
-
-def get_nms_with_max_limit(yolo_output):
-    nms_preds = []
-    # apply nms on yolo output
-    for batch in range(yolo_output.shape[0]):
-        batch = yolo_output[batch]
-        batch_boxes = batch[:, :4]
-        batch_scores = batch[:, 4]
-        batch_classes = batch[:, 5:]
-        # convert batch classes from one hot to class index
-        batch_classes = torch.argmax(batch_classes, dim=1)
-        nms_selected_idxs = batched_nms(
-            boxes=batch_boxes,
-            scores=batch_scores,
-            idxs=batch_classes,
-            iou_threshold=NMS_IOU_THRESHOLD,
-        )
-        batch = batch[nms_selected_idxs]
-        batch_scores = batch[:, 4]
-        top_300_idxs = torch.topk(
-            batch_scores,
-            MAX_BOXES_PER_IMAGE,
-            largest=True,
-            sorted=False,
-        )[1]
-        batch = batch[top_300_idxs]
-        nms_preds.append(batch)
-    
-    return nms_preds
 
 
 def get_mask_conv_layer(in_channels, out_channels, activation=None):
@@ -109,12 +80,15 @@ class MaskHead(nn.Module):
         ).to(device)
 
     def forward(self, x):
-        yolo_output, yolo_features = self.yolo_model(x)
+        if self.training:
+            yolo_output, yolo_features = self.yolo_model(x)
+        else:
+            yolo_reshaped_output, p, yolo_features, yolo_output = self.yolo_model(x)
 
         yolo_output, _ = zip(*yolo_output)
         yolo_output = torch.cat(yolo_output, dim=1)
         
-        nms_preds = get_nms_with_max_limit(yolo_output)
+        nms_preds = non_max_suppression(yolo_output, 0.4, 0.5)
         total_boxes = sum(len(preds) for preds in nms_preds)
         roi_align_boxes_input = torch.zeros((
             total_boxes, 5
@@ -152,4 +126,4 @@ class MaskHead(nn.Module):
             
 
         mask_outputs = self.mask_head(final_tensor)
-        return yolo_output, mask_outputs
+        return yolo_output, mask_outputs, nms_preds

@@ -536,16 +536,15 @@ class Darknet(nn.Module):
             x = [torch.cat(x, 0) for x in zip(*yolo_out)]
             return x[0], torch.cat(x[1:3], 1)  # scores, boxes: 3780x80, 3780x4
         else:  # inference or test
-            # x, p = zip(*yolo_out)  # inference output, training output
-            # x = torch.cat(x, 1)  # cat yolo outputs
-            # if augment:  # de-augment results
-            #     x = torch.split(x, nb, dim=0)
-            #     x[1][..., :4] /= s[0]  # scale
-            #     x[1][..., 0] = img_size[1] - x[1][..., 0]  # flip lr
-            #     x[2][..., :4] /= s[1]  # scale
-            #     x = torch.cat(x, 1)
-            # return x, p, yolo_features
-            return yolo_out, yolo_features
+            x, p = zip(*yolo_out)  # inference output, training output
+            x = torch.cat(x, 1)  # cat yolo outputs
+            if augment:  # de-augment results
+                x = torch.split(x, nb, dim=0)
+                x[1][..., :4] /= s[0]  # scale
+                x[1][..., 0] = img_size[1] - x[1][..., 0]  # flip lr
+                x[2][..., :4] /= s[1]  # scale
+                x = torch.cat(x, 1)
+            return x, p, yolo_features, yolo_out
 
     def fuse(self):
         # Fuse Conv2d + BatchNorm2d layers throughout model

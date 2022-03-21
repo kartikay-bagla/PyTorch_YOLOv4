@@ -66,12 +66,14 @@ model.eval()
 import time
 
 t1 = time.time()
-all_boxes, mask_outputs = model(image)
+all_boxes, mask_outputs, nms_preds = model(image)
 t2 = time.time()
 print("Time taken: ", t2-t1)
 
 print(all_boxes.shape)
 print(mask_outputs.shape)
+print(nms_preds[0].shape)
+print(nms_preds)
 
 #TODO: Get nms output instead of all boxes and actual yolo outputs
 # i.e. (bs, 3, 13, 13, 85 or something like this) as model output
