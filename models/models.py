@@ -4,7 +4,7 @@ from utils.parse_config import *
 from utils import torch_utils
 
 ONNX_EXPORT = False
-
+YOLO_FEATURE_LAYERS = [54, 85, 104]
 
 def create_modules(module_defs, img_size, cfg):
     # Constructs module list of layer blocks from module configuration in module_defs
@@ -522,26 +522,30 @@ class Darknet(nn.Module):
                 #print(x.shape)
                 x = module(x)
 
-            out.append(x if self.routs[i] else [])
+            # add yolo feature layers to output
+            out.append(x if self.routs[i] or i in YOLO_FEATURE_LAYERS else [])
             if verbose:
                 print('%g/%g %s -' % (i, len(self.module_list), name), list(x.shape), str)
                 str = ''
 
+        yolo_features = [out[i] for i in YOLO_FEATURE_LAYERS]
+
         if self.training:  # train
-            return yolo_out
+            return yolo_out, yolo_features
         elif ONNX_EXPORT:  # export
             x = [torch.cat(x, 0) for x in zip(*yolo_out)]
             return x[0], torch.cat(x[1:3], 1)  # scores, boxes: 3780x80, 3780x4
         else:  # inference or test
-            x, p = zip(*yolo_out)  # inference output, training output
-            x = torch.cat(x, 1)  # cat yolo outputs
-            if augment:  # de-augment results
-                x = torch.split(x, nb, dim=0)
-                x[1][..., :4] /= s[0]  # scale
-                x[1][..., 0] = img_size[1] - x[1][..., 0]  # flip lr
-                x[2][..., :4] /= s[1]  # scale
-                x = torch.cat(x, 1)
-            return x, p
+            # x, p = zip(*yolo_out)  # inference output, training output
+            # x = torch.cat(x, 1)  # cat yolo outputs
+            # if augment:  # de-augment results
+            #     x = torch.split(x, nb, dim=0)
+            #     x[1][..., :4] /= s[0]  # scale
+            #     x[1][..., 0] = img_size[1] - x[1][..., 0]  # flip lr
+            #     x[2][..., :4] /= s[1]  # scale
+            #     x = torch.cat(x, 1)
+            # return x, p, yolo_features
+            return yolo_out, yolo_features
 
     def fuse(self):
         # Fuse Conv2d + BatchNorm2d layers throughout model
