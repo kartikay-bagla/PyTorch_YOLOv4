@@ -54,29 +54,28 @@ def resize_image(img, bboxes=None, side_length=416):
 
 model = MaskHead()
 
-image = cv2.imread("WIN_20201110_14_49_31_Pro.jpg")
-print(image.shape)
-
-img = resize_image(image, side_length=416)
-img = img[:, :, ::-1].transpose(2, 0, 1)  # BGR to RGB, to 3x416x416
-image = img / 255.
-print(image.shape)
-image = torch.Tensor([image, image]).to("cuda")
+img_names = [
+    "test1.jpg",
+    "test2.jpg"
+]
+images = []
+for img_name in img_names:
+    image = cv2.imread(img_name)
+    image = resize_image(image, side_length=416)
+    image = image[:, :, ::-1].transpose(2, 0, 1)  # BGR to RGB, to 3x416x416
+    image = image / 255.
+    images.append(image)
+images = torch.Tensor(images).to("cuda")
 model.eval()
 import time
 
 t1 = time.time()
-all_boxes, mask_outputs, nms_preds = model(image)
+mask_outputs, roi_align_boxes_input = model(images)
 t2 = time.time()
 print("Time taken: ", t2-t1)
 
-print(all_boxes.shape)
 print(mask_outputs.shape)
-print(nms_preds[0].shape)
-print(nms_preds)
-
-#TODO: Get nms output instead of all boxes and actual yolo outputs
-# i.e. (bs, 3, 13, 13, 85 or something like this) as model output
+print(roi_align_boxes_input)
 
 # writer.add_graph(model, image)
 # writer.close()

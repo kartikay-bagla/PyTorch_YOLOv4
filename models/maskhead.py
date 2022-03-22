@@ -75,36 +75,34 @@ class MaskHead(nn.Module):
                 padding=1,
                 bias=False
             ),
-            nn.BatchNorm2d(NUM_CLASSES),
-            nn.Sigmoid()
+            nn.BatchNorm2d(NUM_CLASSES)
         ).to(device)
 
-    def forward(self, x):
+    def forward(self, x, targets=None):
+        # targets should be [N, 7] where N is the sum of the
+        # number of boxes in all images and the columns are
+        # (batch_index, x1, y1, x2, y2, conf=1, class_id)
         if self.training:
-            yolo_output, yolo_features = self.yolo_model(x)
+            # if training, targets is already provided
+            _, yolo_features = self.yolo_model(x)
         else:
+            # if not training, need to get targets from yolo output
             yolo_reshaped_output, p, yolo_features, yolo_output = self.yolo_model(x)
 
-        yolo_output, _ = zip(*yolo_output)
-        yolo_output = torch.cat(yolo_output, dim=1)
-        
-        nms_preds = non_max_suppression(yolo_output, 0.4, 0.5)
-        total_boxes = sum(len(preds) for preds in nms_preds)
-        roi_align_boxes_input = torch.zeros((
-            total_boxes, 5
-        )).to(device)
-        counter = 0
-        for i, preds in enumerate(nms_preds):
-            roi_align_boxes_input[
-                counter:counter + len(preds), 1:
-            ] = preds[:, :4]
-            roi_align_boxes_input[
-                counter:counter + len(preds), 0
-            ] = i
+            reshaped_yolo_output, _ = zip(*yolo_output)
+            reshaped_yolo_output = torch.cat(reshaped_yolo_output, dim=1)
 
+            nms_targets = non_max_suppression(reshaped_yolo_output, 0.4, 0.5)
+            total_targets = sum(len(t) for t in nms_targets)
+            targets = torch.zeros((total_targets, 7), dtype=torch.float32).to(device)
+            counter = 0
+            for i, batch in enumerate(nms_targets):
+                targets[counter:counter + len(batch), 0] = i
+                targets[counter:counter+len(batch), 1:] = batch
+                counter += len(batch)
 
         final_tensor = torch.zeros((
-            total_boxes,
+            targets.shape[0],
             YOLO_OUTPUT_FILTERS,
             ROI_ALIGN_OUTPUT_SIDE,
             ROI_ALIGN_OUTPUT_SIDE
@@ -116,14 +114,21 @@ class MaskHead(nn.Module):
                 yolo_feature_filter_counter:yolo_feature_filter_counter + yolo_feature_filters,
             ] = roi_align(
                 input=yolo_features[i],
-                boxes=roi_align_boxes_input,
+                boxes=targets[:, :5], # we only need batch_index and box coordinates
                 output_size=ROI_ALIGN_OUTPUT_SIDE,
                 spatial_scale=1/ROI_ALIGN_OUTPUT_SCALES[i],
                 sampling_ratio=0,
                 aligned=True
             )
             yolo_feature_filter_counter += yolo_feature_filters
-            
 
         mask_outputs = self.mask_head(final_tensor)
-        return yolo_output, mask_outputs, nms_preds
+
+        if self.training:
+            # [N] contains the batch index of each mask
+            # [N, 80, 28, 28], [N]
+            return mask_outputs, targets[:, 0] 
+        else:
+            # [N, 80, 28, 28], [N, 7] where N is the total number of boxes
+            # and the columns are (batch_index, x1, y1, x2, y2, conf, class_id)
+            return mask_outputs, targets
