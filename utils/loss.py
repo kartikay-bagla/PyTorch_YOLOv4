@@ -2,6 +2,7 @@
 
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 
 from utils.general import bbox_iou
 from utils.torch_utils import is_parallel
@@ -170,3 +171,16 @@ def build_targets(p, targets, model):
         tcls.append(c)  # class
 
     return tcls, tbox, indices, anch
+
+
+def compute_loss_with_masks(yolo_masks, masks, class_ids):
+    # yolo masks = (N, 80, 28, 28) where N = n1+n2+... where ni is num boxes in batch i
+    # masks = (N, 28, 28) where N = n1+n2+... where ni is num boxes in batch i
+    # class_ids = (N) where N = n1+n2+... where ni is num boxes in batch i
+
+    yolo_class_masks = torch.zeros_like(masks, device=yolo_masks.device)
+
+    for i, class_id in enumerate(class_ids):
+        yolo_class_masks[i] = yolo_masks[i, class_id]
+
+    return F.binary_cross_entropy_with_logits(yolo_class_masks, masks)
