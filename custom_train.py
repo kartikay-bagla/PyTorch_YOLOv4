@@ -53,8 +53,7 @@ def initialize_optimizer(
 ):
     batch_size = options.batch_size
     nominal_batch_size = 64  # nominal batch size
-    accumulate = max(round(nominal_batch_size / batch_size), 1)  # accumulate loss before optimizing
-    hyperparameters['weight_decay'] *= batch_size * accumulate / nominal_batch_size  # scale weight_decay
+    hyperparameters['weight_decay'] *= batch_size / nominal_batch_size  # scale weight_decay
 
     pg0, pg1, pg2 = [], [], []  # optimizer parameter groups
     for k, v in dict(model.mask_head.named_parameters()).items():
@@ -100,7 +99,7 @@ def initialize_optimizer(
                         (weights_file, torch_config['epoch'], epochs))
             epochs += torch_config['epoch']  # finetune additional epochs
 
-    return optimizer, start_epoch, accumulate, fitness_dict
+    return optimizer, start_epoch, fitness_dict
 
 
 def train(hyperparameters, options, device):
@@ -141,7 +140,7 @@ def train(hyperparameters, options, device):
         torch_config = None
 
     # Optimizer
-    optimizer, start_epoch, accumulate, fitness_dict = initialize_optimizer(
+    optimizer, start_epoch, fitness_dict = initialize_optimizer(
         hyperparameters,
         options,
         model,
@@ -160,6 +159,9 @@ def train(hyperparameters, options, device):
         optimizer.zero_grad()
 
         for i, (imgs, targets, masks) in pbar:
+            imgs = imgs.to(device)
+            targets = targets.to(device)
+            masks = masks.to(device)
             # images is [bs, 3, 416, 416]
             # targets is [N, 7] where N = n1+n2+... and ni is the number of objects in i image
             # and the columns are [batch_index, x, y, w, h, class, conf=1]
@@ -175,9 +177,8 @@ def train(hyperparameters, options, device):
             loss.backward()
 
             # Optimize
-            if (i + 1) % accumulate == 0:
-                optimizer.step()
-                optimizer.zero_grad()
+            optimizer.step()
+            optimizer.zero_grad()
 
             # Print
             pbar.set_description('Loss %.3g' % loss.item())
