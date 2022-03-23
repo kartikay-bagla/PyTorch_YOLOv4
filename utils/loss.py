@@ -181,6 +181,6 @@ def compute_loss_with_masks(yolo_masks, masks, class_ids):
     yolo_class_masks = torch.zeros_like(masks, device=yolo_masks.device)
 
     for i, class_id in enumerate(class_ids):
-        yolo_class_masks[i] = yolo_masks[i, class_id]
+        yolo_class_masks[i] = yolo_masks[i, int(class_id.item())]
 
     return F.binary_cross_entropy_with_logits(yolo_class_masks, masks)

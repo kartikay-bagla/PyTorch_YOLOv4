@@ -31,14 +31,14 @@ def initialize_model(device, weights_file=None):
     """
     if weights_file is not None:
         saved_config = torch.load(weights_file, map_location=device)
-        model = MaskHead().to(device)
+        model = MaskHead(device=device).to(device)
         state_dict = {k: v for k, v in saved_config['model'].items() if model.state_dict()[k].numel() == v.numel()}
         model.load_state_dict(state_dict, strict=False)
         logger.info('Transferred %g/%g items from %s' % (len(state_dict), len(model.state_dict()), weights_file))  # report
         del state_dict
         return model, saved_config
     else:
-        model = MaskHead().to(device)
+        model = MaskHead(device=device).to(device)
         return model
 
 
@@ -124,11 +124,11 @@ def train(hyperparameters, options, device):
 
     # TODO: write data loader
     train_data_loader = CustomImageDataset(
-        "/content/BTP/Datasets/COCO/annotations_2017/annotations/instances_train2017.json",
-        "content/BTP/Datasets/COCO/train_2017/train2017/",
+        "/content/BTP/Datasets/COCO/annotations_2017/annotations/instances_val2017.json",
+        "/content/BTP/Datasets/COCO/val_2017/val2017/",
         batch_size,
         side_length=416,
-        mask_size=28
+        mask_side=28
     )
     num_batches = len(train_data_loader)
 
@@ -237,7 +237,7 @@ if __name__ == '__main__':
         logger.info('Resuming training from %s' % torch_config)
     else:
         # opt.hyp = opt.hyp or ('hyp.finetune.yaml' if opt.weights else 'hyp.scratch.yaml')
-        opt.data, opt.cfg, opt.hyp = check_file(opt.data), check_file(opt.cfg), check_file(opt.hyp)  # check files
+        opt.cfg, opt.hyp = check_file(opt.cfg), check_file(opt.hyp)  # check files
         assert len(opt.cfg) or len(opt.weights), 'either --cfg or --weights must be specified'
         opt.img_size.extend([opt.img_size[-1]] * (2 - len(opt.img_size)))  # extend to 2 sizes (train, test)
         opt.save_dir = increment_path(Path(opt.project) / opt.name, exist_ok=opt.exist_ok)  # increment run

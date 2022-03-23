@@ -31,11 +31,12 @@ def get_mask_conv_layer(in_channels, out_channels, activation=None):
     return nn.Sequential(*layers)
 
 class MaskHead(nn.Module):
-    def __init__(self) -> None:
+    def __init__(self, device) -> None:
         super().__init__()
+        self.device = device
 
         self.yolo_model = Darknet("cfg/yolov4.cfg").to(self.device)
-        load_darknet_weights(self.yolo_model, "weights/yolov4.weights")
+        load_darknet_weights(self.yolo_model, "yolov4.weights")
         for param in self.yolo_model.parameters():
             param.requires_grad = False
 
