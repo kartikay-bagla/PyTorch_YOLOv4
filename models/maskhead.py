@@ -4,8 +4,6 @@ from torchvision.ops import roi_align, batched_nms
 from models.models import Darknet, load_darknet_weights
 from utils.general import non_max_suppression
 
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
 YOLO_OUTPUT_FILTERS_PER_LAYER = (256, 512, 1024)
 YOLO_OUTPUT_FILTERS = sum(YOLO_OUTPUT_FILTERS_PER_LAYER)
 MASK_CONV_FILTERS = 256
@@ -36,7 +34,7 @@ class MaskHead(nn.Module):
     def __init__(self) -> None:
         super().__init__()
 
-        self.yolo_model = Darknet("cfg/yolov4.cfg").to(device)
+        self.yolo_model = Darknet("cfg/yolov4.cfg").to(self.device)
         load_darknet_weights(self.yolo_model, "weights/yolov4.weights")
         for param in self.yolo_model.parameters():
             param.requires_grad = False
@@ -76,7 +74,7 @@ class MaskHead(nn.Module):
                 bias=False
             ),
             nn.BatchNorm2d(NUM_CLASSES)
-        ).to(device)
+        ).to(self.device)
 
     def forward(self, x, targets=None):
         # targets should be [N, 7] where N is the sum of the
@@ -94,7 +92,7 @@ class MaskHead(nn.Module):
 
             nms_targets = non_max_suppression(reshaped_yolo_output, 0.4, 0.5)
             total_targets = sum(len(t) for t in nms_targets)
-            targets = torch.zeros((total_targets, 7), dtype=torch.float32).to(device)
+            targets = torch.zeros((total_targets, 7), dtype=torch.float32).to(self.device)
             counter = 0
             for i, batch in enumerate(nms_targets):
                 targets[counter:counter + len(batch), 0] = i
@@ -106,7 +104,7 @@ class MaskHead(nn.Module):
             YOLO_OUTPUT_FILTERS,
             ROI_ALIGN_OUTPUT_SIDE,
             ROI_ALIGN_OUTPUT_SIDE
-        )).to(device)
+        )).to(self.device)
         yolo_feature_filter_counter = 0
         for i, yolo_feature_filters in enumerate(YOLO_OUTPUT_FILTERS_PER_LAYER):
             final_tensor[
