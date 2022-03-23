@@ -1,5 +1,6 @@
 import argparse
 import logging
+import os
 from pathlib import Path
 import torch.optim as optim
 import torch.utils.data
@@ -9,6 +10,7 @@ from tqdm import tqdm
 import test  # import test.py to get mAP after each epoch
 from models.maskhead import MaskHead
 from utils.data_loader import CustomImageDataset
+from utils.general import check_file, increment_path
 from utils.loss import compute_loss_with_masks
 
 logger = logging.getLogger(__name__)
@@ -120,13 +122,13 @@ def train(hyperparameters, options, device):
     with open(save_dir / 'opt.yaml', 'w') as f:
         yaml.dump(vars(options), f, sort_keys=False)
 
-    use_cuda = device.type != 'cpu'
-
     # TODO: write data loader
     train_data_loader = CustomImageDataset(
-        options.train_ann_file,
-        options.train_img_dir,
-        batch_size
+        "/content/BTP/Datasets/COCO/annotations_2017/annotations/instances_train2017.json",
+        "content/BTP/Datasets/COCO/train_2017/train2017/",
+        batch_size,
+        side_length=416,
+        mask_size=28
     )
     num_batches = len(train_data_loader)
 
@@ -164,7 +166,7 @@ def train(hyperparameters, options, device):
             # masks is [N, 28, 28] where N = n1+n2+... and ni is the number of objects in i image
 
             # Forward
-            mask_preds, _ = model(imgs, targets)  # [N, 28, 28]
+            mask_preds, _ = model(imgs, targets)  # [N, 80, 28, 28]
 
             #TODO: write loss function
             loss = compute_loss_with_masks(mask_preds, masks, targets[:, 5])
@@ -206,4 +208,50 @@ def train(hyperparameters, options, device):
 
     torch.cuda.empty_cache()
 
-# TODO: Write main function
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--weights', type=str, default='yolov4.weights', help='initial weights path')
+    parser.add_argument('--cfg', type=str, default='', help='model.yaml path')
+    parser.add_argument('--hyp', type=str, default='data/hyp.scratch.yaml', help='hyperparameters path')
+    parser.add_argument('--epochs', type=int, default=20)
+    parser.add_argument('--batch-size', type=int, default=16, help='total batch size for all GPUs')
+    parser.add_argument('--img-size', nargs='+', type=int, default=[416, 416], help='[train, test] image sizes')
+    parser.add_argument('--rect', action='store_true', help='rectangular training')
+    parser.add_argument('--resume', nargs='?', const=True, default=False, help='resume most recent training')
+    parser.add_argument('--device', default='cpu', help='cuda device, i.e. 0 or 0,1,2,3 or cpu')
+    parser.add_argument('--adam', action='store_true', help='use torch.optim.Adam() optimizer')
+    parser.add_argument('--project', default='runs/train', help='save to project/name')
+    parser.add_argument('--name', default='exp', help='save to project/name')
+    parser.add_argument('--exist-ok', action='store_true', help='existing project/name ok, do not increment')
+    opt = parser.parse_args()
+
+    opt.total_batch_size = opt.batch_size
+
+    # Resume
+    if opt.resume:  # resume an interrupted run
+        torch_config = opt.resume if isinstance(opt.resume, str) else None  # specified or most recent path
+        assert os.path.isfile(torch_config), 'ERROR: --resume checkpoint does not exist'
+        with open(Path(torch_config).parent.parent / 'opt.yaml') as f:
+            opt = argparse.Namespace(**yaml.load(f, Loader=yaml.FullLoader))  # replace
+        opt.cfg, opt.weights, opt.resume = '', torch_config, True
+        logger.info('Resuming training from %s' % torch_config)
+    else:
+        # opt.hyp = opt.hyp or ('hyp.finetune.yaml' if opt.weights else 'hyp.scratch.yaml')
+        opt.data, opt.cfg, opt.hyp = check_file(opt.data), check_file(opt.cfg), check_file(opt.hyp)  # check files
+        assert len(opt.cfg) or len(opt.weights), 'either --cfg or --weights must be specified'
+        opt.img_size.extend([opt.img_size[-1]] * (2 - len(opt.img_size)))  # extend to 2 sizes (train, test)
+        opt.save_dir = increment_path(Path(opt.project) / opt.name, exist_ok=opt.exist_ok)  # increment run
+
+    try:
+        device = torch.device('cuda', int(opt.device))
+    except:
+        device = torch.device(opt.device)
+
+    with open(opt.hyp) as f:
+        hyp = yaml.load(f, Loader=yaml.FullLoader)  # load hyps
+        if 'box' not in hyp:
+            logger.warn('Compatibility: %s missing "box" which was renamed from "giou" in %s' %
+                 (opt.hyp, 'https://github.com/ultralytics/yolov5/pull/1120'))
+            hyp['box'] = hyp.pop('giou')
+
+    results = train(hyp, opt, device)
