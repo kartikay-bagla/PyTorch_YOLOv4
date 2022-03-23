@@ -105,36 +105,41 @@ class CustomImageDataset(Dataset):
         return len(self.img_ids) // self.batch_size
 
     def __getitem__(self, idx):
+        if idx >= len(self):
+            raise StopIteration
+
         # filter out relevant rows based on index
         relevant_img_ids = self.img_ids[idx*self.batch_size: (idx+1)*self.batch_size]
 
         # load annotations
         annotations = self.coco.loadAnns(self.coco.getAnnIds(imgIds=relevant_img_ids))
 
-        # output tensors
-        images = torch.zeros((self.batch_size, 3, self.side_length, self.side_length))
-        targets = torch.zeros((len(annotations), 7))
-        masks = torch.zeros((len(annotations), self.mask_side, self.mask_side))
-
-        # used to keep track of current annotation index
-        ann_counter = 0
-        for batch_index, coco_img in enumerate(self.coco.loadImgs(relevant_img_ids)):
+        all_imgs, all_bboxes, all_class_ids, all_masks = [], [], [], []
+        for coco_img in self.coco.loadImgs(relevant_img_ids):
             # filter annotations for this image
             anns = [ann for ann in annotations if ann['image_id'] == coco_img['id']]
             # temp storage of these values
             bboxes, class_ids, batch_masks = [], [], []
             for ann in anns:
-                x1, y1, w, h = ann['bbox']
-                x2, y2 = x1+w, y1+h
-                x1, y1, x2, y2 = map(lambda x: int(round(x)), (x1, y1, x2, y2))
-                bboxes.append([x1, y1, x2, y2])
-                # since mask is on entire image, extract roi from mask and resize
-                batch_masks.append(resize_image(
-                    self.coco.annToMask(ann)[y1:y2,x1:x2],
-                    side_length=self.mask_side
-                ))
-                # map coco ids (91) to our ids (80)
-                class_ids.append(COCO_CAT_IDS_TO_USED_IDS[ann['category_id']])
+                try:
+                    x1, y1, w, h = ann['bbox']
+                    x2, y2 = x1+w, y1+h
+                    x1, y1, x2, y2 = map(lambda x: int(round(x)), (x1, y1, x2, y2))
+                    
+                    # since mask is on entire image, extract roi from mask and resize
+                    mask = self.coco.annToMask(ann)
+                    mask = mask[y1:y2,x1:x2]
+                    mask = resize_image(mask, side_length=self.mask_side)
+                    batch_masks.append(mask)
+                    # map coco ids (91) to our ids (80)
+                    class_ids.append(COCO_CAT_IDS_TO_USED_IDS[ann['category_id']])
+                    bboxes.append([x1, y1, x2, y2])
+                except:
+                    pass
+
+            all_bboxes.append(bboxes)
+            all_class_ids.append(class_ids)
+            all_masks.append(batch_masks)
 
             img = cv2.imread(self.image_folder + coco_img['file_name'])
             # resize image and bboxes
@@ -142,18 +147,29 @@ class CustomImageDataset(Dataset):
             # bgr to rgb, channels first, scaling
             img = img[:,:,::-1].transpose(2,0,1) / 255.
 
+            all_imgs.append(img)
+
+        # output tensors
+        images = torch.zeros((self.batch_size, 3, self.side_length, self.side_length))
+        total_anns = sum(len(i) for i in all_bboxes)
+        targets = torch.zeros((total_anns, 7))
+        masks = torch.zeros((total_anns, self.mask_side, self.mask_side))
+
+        # used to keep track of current annotation index
+        ann_counter = 0
+        for batch_index, (img, bboxes, class_ids, batch_masks) in enumerate(zip(all_imgs, all_bboxes, all_class_ids, all_masks)):
             # update tensors
             images[batch_index] = torch.tensor(img)
-            targets[ann_counter:ann_counter+len(anns), 0] = batch_index
-            targets[ann_counter:ann_counter+len(anns), 1:5] = torch.tensor(bboxes)
-            targets[ann_counter:ann_counter+len(anns), 5] = 1
-            targets[ann_counter:ann_counter+len(anns), 6] = torch.tensor(class_ids)
+            targets[ann_counter:ann_counter+len(bboxes), 0] = batch_index
+            targets[ann_counter:ann_counter+len(bboxes), 1:5] = torch.tensor(bboxes)
+            targets[ann_counter:ann_counter+len(bboxes), 5] = 1
+            targets[ann_counter:ann_counter+len(bboxes), 6] = torch.tensor(class_ids)
 
             # convert to np array first since torch conversion of list of numpy arrays is slower than this
             batch_masks = torch.tensor(np.array(batch_masks))
-            masks[ann_counter:ann_counter+len(anns)] = batch_masks
+            masks[ann_counter:ann_counter+len(bboxes)] = batch_masks
 
             # update counter
-            ann_counter += len(anns)
+            ann_counter += len(bboxes)
 
         return images, targets, masks
