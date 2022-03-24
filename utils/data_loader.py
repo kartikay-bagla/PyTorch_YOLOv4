@@ -16,6 +16,8 @@ import numpy as np
 import cv2
 from PIL import Image
 
+import traceback
+
 USED_CATEGORIES = [
     'person', 'bicycle', 'car', 'motorcycle', 'airplane', 'bus', 'train', 'truck', 'boat', 'traffic light',
     'fire hydrant', 'stop sign', 'parking meter', 'bench', 'bird', 'cat', 'dog', 'horse', 'sheep', 'cow',
@@ -71,8 +73,11 @@ def resize_image(img, bboxes=None, side_length=416):
     if bboxes:
         bboxes = [[i*scale_factor for i in bbox] for bbox in bboxes]
         for bbox in bboxes:
-            bbox[0] = bbox[0] + w_start
-            bbox[1] = bbox[1] + h_start
+            bbox[0] += w_start
+            bbox[1] += h_start
+            bbox[2] += w_start
+            bbox[3] += h_start
+
 
     # return values
     return (new_img, bboxes) if bboxes else new_img
@@ -129,7 +134,7 @@ class CustomImageDataset(Dataset):
                     # since mask is on entire image, extract roi from mask and resize
                     mask = self.coco.annToMask(ann)
                     mask = mask[y1:y2,x1:x2]
-                    mask = resize_image(mask, side_length=self.mask_side)
+                    mask = cv2.resize(mask, (self.mask_side, self.mask_side))
                     batch_masks.append(mask)
                     # map coco ids (91) to our ids (80)
                     class_ids.append(COCO_CAT_IDS_TO_USED_IDS[ann['category_id']])
@@ -137,17 +142,21 @@ class CustomImageDataset(Dataset):
                 except:
                     pass
 
-            all_bboxes.append(bboxes)
-            all_class_ids.append(class_ids)
-            all_masks.append(batch_masks)
 
-            img = cv2.imread(self.image_folder + coco_img['file_name'])
-            # resize image and bboxes
-            img, bboxes = resize_image(img, bboxes, self.side_length)
-            # bgr to rgb, channels first, scaling
-            img = img[:,:,::-1].transpose(2,0,1) / 255.
+            try:
+                all_class_ids.append(class_ids)
+                all_masks.append(batch_masks)
 
-            all_imgs.append(img)
+                img = cv2.imread(self.image_folder + coco_img['file_name'])
+                # resize image and bboxes
+                img, bboxes = resize_image(img, bboxes, self.side_length)
+                # bgr to rgb, channels first, scaling
+                img = img[:,:,::-1].transpose(2,0,1) / 255.
+
+                all_imgs.append(img)
+                all_bboxes.append(bboxes)
+            except:
+              traceback.print_exc()
 
         # output tensors
         images = torch.zeros((self.batch_size, 3, self.side_length, self.side_length))
