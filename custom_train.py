@@ -158,6 +158,8 @@ def train(hyperparameters, options, device):
         pbar = tqdm(enumerate(train_data_loader), total=len(train_data_loader), desc='training %g' % epoch)  # progress bar
         optimizer.zero_grad()
 
+        epoch_loss = 0.0
+
         for i, (imgs, targets, masks) in pbar:
             imgs = imgs.to(device)
             targets = targets.to(device)
@@ -173,6 +175,8 @@ def train(hyperparameters, options, device):
             #TODO: write loss function
             loss = compute_loss_with_masks(mask_preds, masks, targets[:, 5])
 
+            epoch_loss += loss.item()
+
             # Backward
             loss.backward()
 
@@ -181,7 +185,7 @@ def train(hyperparameters, options, device):
             optimizer.zero_grad()
 
             # Print
-            pbar.set_description('Loss %.3g' % loss.item())
+            pbar.set_description('Avg. Loss %.3g' % (epoch_loss / (i+1)))
 
         # TODO: Run validation results after each epoch
 
