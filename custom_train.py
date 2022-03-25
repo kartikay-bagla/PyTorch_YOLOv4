@@ -65,9 +65,9 @@ def initialize_optimizer(
             pg0.append(v)  # all else
 
     if options.adam:
-        optimizer = optim.Adam(pg0, lr=hyperparameters['lr0'], betas=(hyperparameters['momentum'], 0.999))  # adjust beta1 to momentum
+        optimizer = optim.Adam(pg0, lr=0.1, betas=(hyperparameters['momentum'], 0.999))  # adjust beta1 to momentum
     else:
-        optimizer = optim.SGD(pg0, lr=hyperparameters['lr0'], momentum=hyperparameters['momentum'], nesterov=True)
+        optimizer = optim.SGD(pg0, lr=0.1, momentum=hyperparameters['momentum'], nesterov=True)
 
     optimizer.add_param_group({'params': pg1, 'weight_decay': hyperparameters['weight_decay']})  # add pg1 with weight_decay
     optimizer.add_param_group({'params': pg2})  # add pg2 (biases)
@@ -175,7 +175,8 @@ def train(hyperparameters, options, device):
             #TODO: write loss function
             loss = compute_loss_with_masks(mask_preds, masks, targets[:, 5])
 
-            epoch_loss += loss.item()
+            curr_loss = loss.item()
+            epoch_loss += curr_loss
 
             # Backward
             loss.backward()
@@ -185,7 +186,7 @@ def train(hyperparameters, options, device):
             optimizer.zero_grad()
 
             # Print
-            pbar.set_description('Avg. Loss %.3g' % (epoch_loss / (i+1)))
+            pbar.set_description(f'Avg Loss: {epoch_loss / (i+1):.3f}, Prev Step Loss: {curr_loss:.3f}')
 
         # TODO: Run validation results after each epoch
 
@@ -197,19 +198,19 @@ def train(hyperparameters, options, device):
             pass
 
         # Save model and weights
-        torch_config = {
-            'epoch': epoch,
-            'best_fitness': fitness_dict["best_fitness"],
-            'best_fitness_p': fitness_dict["best_fitness_p"],
-            'best_fitness_r': fitness_dict["best_fitness_r"],
-            'best_fitness_ap50': fitness_dict["best_fitness_ap50"],
-            'best_fitness_ap': fitness_dict["best_fitness_ap"],
-            'best_fitness_f': fitness_dict["best_fitness_f"],
-            'training_results': f.read(),
-            'model': model.state_dict(),
-            'optimizer': None if final_epoch else optimizer.state_dict(),
-        }
-        torch.save(torch_config, save_dir / 'epoch_{:03d}.pt'.format(epoch))
+        # torch_config = {
+        #     'epoch': epoch,
+        #     'best_fitness': fitness_dict["best_fitness"],
+        #     'best_fitness_p': fitness_dict["best_fitness_p"],
+        #     'best_fitness_r': fitness_dict["best_fitness_r"],
+        #     'best_fitness_ap50': fitness_dict["best_fitness_ap50"],
+        #     'best_fitness_ap': fitness_dict["best_fitness_ap"],
+        #     'best_fitness_f': fitness_dict["best_fitness_f"],
+        #     'training_results': f.read(),
+        #     'model': model.state_dict(),
+        #     'optimizer': None if final_epoch else optimizer.state_dict(),
+        # }
+        torch.save(model.state_dict(), save_dir / 'epoch_{:03d}.pt'.format(epoch))
 
     torch.cuda.empty_cache()
 
